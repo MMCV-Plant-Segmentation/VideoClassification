@@ -35,6 +35,8 @@ import xml.etree.ElementTree as ET
 import matplotlib
 matplotlib.use("WebAgg")
 
+import pyperclip
+
 import matplotlib.pyplot as plt
 from pathlib import Path
 from matplotlib.widgets import Slider, Button
@@ -82,50 +84,45 @@ def plot_points(data):
     lats = [d['latitude'] for d in data]
     
     fig, ax = plt.subplots(figsize=(10, 7))
-    plt.subplots_adjust(bottom=0.25)  # Leave space for slider and buttons
+    plt.subplots_adjust(bottom=0.25)
 
-    ax.scatter(lons, lats, color='blue', alpha=0.3, label='Path', s=10)
+    ax.scatter(lons, lats, color='blue', alpha=0.3, label='Path')
     ax.set_xlabel('Longitude')
     ax.set_ylabel('Latitude')
     ax.set_title('GPS Data Viewer')
     ax.grid(True)
 
-    highlight, = ax.plot([lons[0]], [lats[0]], 'ro', markersize=10, label='Selected')
+    highlight, = ax.plot([lons[0]], [lats[0]], 'ro', markersize=12, label='Selected')
 
-    # Added Timestamp to the template
-    info_template = 'Index: {idx}\nFrame: {frame}\nLat: {lat:.6f}\nLon: {lon:.6f}\nTime: {ts}'
+    info_template = 'Index: {idx}\nFrame: {frame}\nLat: {lat:.6f}\nLon: {lon:.6f}\nTime: {time}'
     
     text_box = ax.text(
         0.05, 0.95, 
-        info_template.format(
-            idx=0, 
-            frame=data[0]['frame_number'], 
-            lat=lats[0], 
-            lon=lons[0],
-            ts=data[0].get('timestamp', 'N/A') # Support for the new field
-        ),
+        "", # Start empty, update() will fill it
         transform=ax.transAxes, 
         verticalalignment='top',
-        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
+        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
         fontfamily='monospace'
     )
 
-    # --- UI Elements Layout ---
-    ax_slider = plt.axes([0.2, 0.1, 0.6, 0.03])
-    ax_prev = plt.axes([0.1, 0.1, 0.08, 0.04]) # [left, bottom, width, height]
-    ax_next = plt.axes([0.82, 0.1, 0.08, 0.04])
+    # --- UI Layout ---
+    ax_prev   = plt.axes([0.05, 0.1, 0.06, 0.04])
+    ax_slider = plt.axes([0.15, 0.1, 0.55, 0.04]) # Slightly narrowed to fit Copy button
+    ax_next   = plt.axes([0.74, 0.1, 0.06, 0.04])
+    ax_copy   = plt.axes([0.84, 0.1, 0.11, 0.04]) # New Copy Button Axes
 
+    btn_prev = Button(ax_prev, '<')
+    btn_next = Button(ax_next, '>')
+    btn_copy = Button(ax_copy, 'Copy Text')
+    
     slider = Slider(
         ax=ax_slider,
-        label='',
+        label='Index ',
         valmin=0,
         valmax=len(data) - 1,
         valinit=0,
         valstep=1
     )
-
-    btn_prev = Button(ax_prev, 'Prev')
-    btn_next = Button(ax_next, 'Next')
 
     def update(val):
         idx = int(slider.val)
@@ -133,17 +130,39 @@ def plot_points(data):
         
         highlight.set_data([lons[idx]], [lats[idx]])
         
-        text_box.set_text(info_template.format(
+        content = info_template.format(
             idx=idx, 
             frame=point['frame_number'], 
             lat=point['latitude'], 
             lon=point['longitude'],
-            ts=point.get('timestamp', 'N/A')
-        ))
-        
+            time=point.get('timestamp', 'N/A')
+        )
+        text_box.set_text(content)
         fig.canvas.draw_idle()
 
-    # --- Navigation Logic ---
+    # --- Copy Logic ---
+    def copy_to_clipboard(event):
+        # Get the current text from the bubble
+        current_text = text_box.get_text()
+        pyperclip.copy(current_text)
+        
+        # UI Feedback: Change button label temporarily
+        original_label = btn_copy.label.get_text()
+        btn_copy.label.set_text("Copied!")
+        btn_copy.ax.set_facecolor('#b3ffb3') # Light green
+        fig.canvas.draw()
+
+        # Reset label after 1.5 seconds using a timer
+        def reset_label():
+            btn_copy.label.set_text(original_label)
+            btn_copy.ax.set_facecolor('0.85') # Default grey
+            fig.canvas.draw()
+        
+        threading.Timer(1.5, reset_label).start()
+
+    # --- Event Handlers ---
+    slider.on_changed(update)
+
     def go_next(event):
         if slider.val < slider.valmax:
             slider.set_val(slider.val + 1)
@@ -152,18 +171,23 @@ def plot_points(data):
         if slider.val > slider.valmin:
             slider.set_val(slider.val - 1)
 
+    btn_next.on_clicked(go_next)
+    btn_prev.on_clicked(go_prev)
+    btn_copy.on_clicked(copy_to_clipboard)
+
     def on_key(event):
         if event.key == 'right':
             go_next(None)
         elif event.key == 'left':
             go_prev(None)
+        elif event.key == 'c': # Added 'c' key shortcut for copy
+            copy_to_clipboard(None)
 
-    # Register Events
-    slider.on_changed(update)
-    btn_next.on_clicked(go_next)
-    btn_prev.on_clicked(go_prev)
     fig.canvas.mpl_connect('key_press_event', on_key)
 
+    # Initialize the display
+    update(0)
+    
     plt.legend(loc='upper right')
     plt.show()
 
@@ -179,4 +203,4 @@ def plot_srt(file_path):
     plot_points(points)
 
 if __name__ =='__main__':
-    plot_srt(Path('/deltos/f/aerial_imaging/images/24r/grace/30.9/DJI_0309.SRT'))
+    plot_srt(Path('/home/creallf/Videos/DJI_0309.SRT'))

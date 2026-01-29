@@ -1,0 +1,11 @@
+[project]
+name = "Video Classification"
+version = "0.1.0"
+description = ""
+requires-python = ">=3.8"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "pyperclip>=1.11.0",
+    "srt>=3.5.3",
+    "tornado>=6.5.4",
+]
