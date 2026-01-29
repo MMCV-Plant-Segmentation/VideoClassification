@@ -145,21 +145,8 @@ def plot_points(data):
         # Get the current text from the bubble
         current_text = text_box.get_text()
         pyperclip.copy(current_text)
+        print(f"copied text {current_text}")
         
-        # UI Feedback: Change button label temporarily
-        original_label = btn_copy.label.get_text()
-        btn_copy.label.set_text("Copied!")
-        btn_copy.ax.set_facecolor('#b3ffb3') # Light green
-        fig.canvas.draw()
-
-        # Reset label after 1.5 seconds using a timer
-        def reset_label():
-            btn_copy.label.set_text(original_label)
-            btn_copy.ax.set_facecolor('0.85') # Default grey
-            fig.canvas.draw()
-        
-        threading.Timer(1.5, reset_label).start()
-
     # --- Event Handlers ---
     slider.on_changed(update)
 
@@ -203,4 +190,4 @@ def plot_srt(file_path):
     plot_points(points)
 
 if __name__ =='__main__':
-    plot_srt(Path('/home/creallf/Videos/DJI_0309.SRT'))
+    plot_srt(Path('/deltos/f/aerial_imaging/images/24r/grace/30.9/DJI_0309.SRT'))
