@@ -11,11 +11,7 @@ from matplotlib import pyplot as plt
 
 # This script processes SRT files in a given directory, generates flight path graphs, and saves them as PNG files.
 # It also writes the filepaths of the generated graphs to a CSV file.
-def process_video_data(file_path, output_directory):
-
-#    print(f"bar {type(file_path)}")
-    
-#    Check if file exists and read it---------------------------------
+def process_video_data(file_path, output_directory, add_to_list=True):
     try:
         content_string = file_path.read_text() # Get text from SRT
 
@@ -69,6 +65,9 @@ def process_video_data(file_path, output_directory):
 
     #close plot
     plt.close()
+
+    if not add_to_list:
+        return
 
 #   write video info to org table-----------------------------------------------
     org_file_path = "/deltos/f/aerial_imaging/lat_long_plots/all_flight_paths.org" 
