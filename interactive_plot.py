@@ -28,17 +28,16 @@
 
 
 import sys
-import pathlib
 import srt
 import re
-import numpy as np
-import mplcursors
-import pandas as pd
-from datetime import datetime
-from matplotlib import pyplot as plt
-from matplotlib.widgets import Button, Slider
 import xml.etree.ElementTree as ET
 
+import matplotlib
+matplotlib.use("WebAgg")
+
+import matplotlib.pyplot as plt
+from pathlib import Path
+from matplotlib.widgets import Slider, Button
 
 
 # in the SRT files, data for each frame is separated by blank lines and begins
@@ -49,7 +48,6 @@ import xml.etree.ElementTree as ET
 # [iso : 100] [shutter : 1/240.0] [fnum : 900] [ev : 0] [ct : 5502] [color_md : default] [focal_len : 280] [latitude : 38.904608] [longtitude : -92.281470] [altitude: 260.226990] </font>
 #
 # 2
-# etc
 #
 # in the second line iine of the frame's SRT entry, the first time is the
 # elapsed time from the beginning of the video.  So fancy parsing of the
@@ -66,81 +64,119 @@ def parse_subtitles(contents):
         xml_root = ET.fromstring(sub.content)
         visible_text = xml_root.text
 
-
-# this is extraneous
-#
-# assume last six digits are really microseconds        
-# ['2024-09-30 13:38:24,653,570']
-#
-#         timestampish = re.findall(r'(\d{4}\-\d{2}\-\d{1,2}\s[\d{1,2}\:\d{1,2}\:\d{1,2}\:[\d\,]+)',visible_text)
-#         timeish = str(timestampish).replace(",",".",1)
-#         timestamp = re.sub(r',','',timeish)
-#
-#        timestamp_obj = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S.%f')
-#
-# Kazic, 29.1.2026
-
         kv_pairs = re.findall(r'([^\s\[]+) ?: ([^\s,\]]+)', visible_text)
         kv_map = dict(kv_pairs)
-        print("-" * 20)
-        print(visible_text)        
-        print(timestamp_obj)        
-        print(kv_map)        
         parsed.append({
-            'frame_number': int(kv_map['FrameCnt']), # just to make sure we match
-            'timestamp': float(kv_map['altitude']),            
-            'longitude': float(kv_map['longtitude']),
+            'timestamp': str(sub.start),
+            'frame_number': int(kv_map['FrameCnt']),
             'latitude': float(kv_map['latitude']),
+            'longitude': float(kv_map['longtitude']),
             'altitude': float(kv_map['altitude'])            
         })
        
     return parsed
 
 
-# This script processes SRT files in a given directory, generates flight path graphs, and saves them as PNG files.
-# It also writes the filepaths of the generated graphs to a CSV file.
-
-
-def process_video_data(file_path):
-
-#    print(f"bar {type(file_path)}")
+def plot_points(data):
+    lons = [d['longitude'] for d in data]
+    lats = [d['latitude'] for d in data]
     
-#    Check if file exists and read it---------------------------------
-    try:
-        content_string = file_path.read_text() # Get text from SRT
+    fig, ax = plt.subplots(figsize=(10, 7))
+    plt.subplots_adjust(bottom=0.25)  # Leave space for slider and buttons
 
-        if len(content_string) == 0:
-            return
+    ax.scatter(lons, lats, color='blue', alpha=0.3, label='Path', s=10)
+    ax.set_xlabel('Longitude')
+    ax.set_ylabel('Latitude')
+    ax.set_title('GPS Data Viewer')
+    ax.grid(True)
+
+    highlight, = ax.plot([lons[0]], [lats[0]], 'ro', markersize=10, label='Selected')
+
+    # Added Timestamp to the template
+    info_template = 'Index: {idx}\nFrame: {frame}\nLat: {lat:.6f}\nLon: {lon:.6f}\nTime: {ts}'
+    
+    text_box = ax.text(
+        0.05, 0.95, 
+        info_template.format(
+            idx=0, 
+            frame=data[0]['frame_number'], 
+            lat=lats[0], 
+            lon=lons[0],
+            ts=data[0].get('timestamp', 'N/A') # Support for the new field
+        ),
+        transform=ax.transAxes, 
+        verticalalignment='top',
+        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
+        fontfamily='monospace'
+    )
+
+    # --- UI Elements Layout ---
+    ax_slider = plt.axes([0.2, 0.1, 0.6, 0.03])
+    ax_prev = plt.axes([0.1, 0.1, 0.08, 0.04]) # [left, bottom, width, height]
+    ax_next = plt.axes([0.82, 0.1, 0.08, 0.04])
+
+    slider = Slider(
+        ax=ax_slider,
+        label='',
+        valmin=0,
+        valmax=len(data) - 1,
+        valinit=0,
+        valstep=1
+    )
+
+    btn_prev = Button(ax_prev, 'Prev')
+    btn_next = Button(ax_next, 'Next')
+
+    def update(val):
+        idx = int(slider.val)
+        point = data[idx]
         
-        filename_root = file_path.stem # Get DJI_0###
+        highlight.set_data([lons[idx]], [lats[idx]])
+        
+        text_box.set_text(info_template.format(
+            idx=idx, 
+            frame=point['frame_number'], 
+            lat=point['latitude'], 
+            lon=point['longitude'],
+            ts=point.get('timestamp', 'N/A')
+        ))
+        
+        fig.canvas.draw_idle()
 
-        # Get parts of file path as a tuple (for table labeling)
-        file_name_parts = file_path.parts
-        meaningful_parent_partial_path =  file_name_parts[5] + '/' + file_name_parts[6] + '/' + file_name_parts[7] + '/' + filename_root + '.MOV'
+    # --- Navigation Logic ---
+    def go_next(event):
+        if slider.val < slider.valmax:
+            slider.set_val(slider.val + 1)
+
+    def go_prev(event):
+        if slider.val > slider.valmin:
+            slider.set_val(slider.val - 1)
+
+    def on_key(event):
+        if event.key == 'right':
+            go_next(None)
+        elif event.key == 'left':
+            go_prev(None)
+
+    # Register Events
+    slider.on_changed(update)
+    btn_next.on_clicked(go_next)
+    btn_prev.on_clicked(go_prev)
+    fig.canvas.mpl_connect('key_press_event', on_key)
+
+    plt.legend(loc='upper right')
+    plt.show()
+
+
+def plot_srt(file_path):
+    try:
+        content_string = file_path.read_text()
 
     except FileNotFoundError:
         print(f"File {file_path} not found.")
+    
+    points = parse_subtitles(content_string)
+    plot_points(points)
 
-
-#    extract telemetry---------------------------------------------------------------
-
-# create a single dataframe for each SRT file, appending the parsing output to that frame
-
-
-#     subtitle_generator = srt.parse(content_string)
-#     subtitles = list(subtitle_generator)
-# 
-#     for sub in subtitles:
-#         print(f"Index: {sub.index}")
-#         print(f"Content: {sub.content}")
-# #        pattern = re.compile(r"rameCnt\s*\:\s*(\d+)[\s\w\,\:\-\n\r\[\/\_\]\.]*\[latitude\s:\s]([\d\.]+)\]",flags=re.MULTILINE) #\s*\[longt?itude\s*:\s*([-?\d.]+)\]\s*\[altitude:\s*([-?\d.]+)\]",flags=re.IGNORECASE)
-#         pattern = re.compile(r"rameCnt\s*\:\s*(\d+).+\[latitude\s:\s]([\d\.]+)\]",flags=re.MULTILINE) # \[latitude\s:\s([\d\.]+)\]",flags=re.MULTILINE) #\s*\[longt?itude\s*:\s*([-?\d.]+)\]\s*\[altitude:\s*([-?\d.]+)\]",flags=re.IGNORECASE)
-#         matches = pattern.findall(sub.content)
-#         print(matches)        
-# #        data = [{'frame':int(cnt), 'latitude': float(lat), 'longtitude': float(lon), 'altitude': float(alt)} for cnt, lat, lon, alt in matches]
-#         data = [{'frame':int(cnt),'latitude':float(lat)} for cnt, lat in matches]
-#         print(data)        
-#         print("-" * 20)
-
-    subtitles = parse_subtitles(content_string)
-#    print('subs:', subtitles)
+if __name__ =='__main__':
+    plot_srt(Path('/deltos/f/aerial_imaging/images/24r/grace/30.9/DJI_0309.SRT'))
